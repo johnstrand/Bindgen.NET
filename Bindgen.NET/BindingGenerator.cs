@@ -120,6 +120,15 @@ public static class BindingGenerator
                 #nullable disable
             """);
 
+        string nativeOutput = $$"""
+            #ifdef _WIN32
+                #define BINDGEN_API __declspec(dllexport)
+            #else
+                #define BINDGEN_API __attribute__((visibility("default")))
+            #endif
+            {{nativeOutputBuilder}}
+            """;
+
 
         if (options.OutputFile != null)
         {
@@ -129,7 +138,7 @@ public static class BindingGenerator
 
         if (options.NativeOutputFile != null)
         {
-            File.WriteAllText(options.NativeOutputFile, nativeOutputBuilder.ToString());
+            File.WriteAllText(options.NativeOutputFile, nativeOutput);
             Diagnostic.Log(DiagnosticLevel.Info, $"Generated {Path.GetFullPath(options.NativeOutputFile)} from {GetInputFileName()}");
         }
 
@@ -608,7 +617,7 @@ public static class BindingGenerator
     private static string GenerateExternVarDeclNativeGetter(VarDecl varDecl)
     {
         return $$"""
-        void* {{GenerateExternGetterName(varDecl.Name)}}() {
+        BINDGEN_API void* {{GenerateExternGetterName(varDecl.Name)}}() {
             return &{{varDecl.Name}};
         }
         """;
