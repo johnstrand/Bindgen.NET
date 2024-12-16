@@ -1,8 +1,8 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿using ClangSharp;
+using ClangSharp.Interop;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
-using ClangSharp;
-using ClangSharp.Interop;
 using Type = ClangSharp.Type;
 
 namespace Bindgen.NET;
@@ -15,7 +15,7 @@ public static class BindingGenerator
     private const string MacroPrefix = "BindgenMacro";
     private const string AnonymousPrefix = "Anonymous";
 
-    private static BindingOptions _options = new ();
+    private static BindingOptions _options = new();
 
     /// <summary>
     /// Generates bindings based on the values specified in the <c>options</c> parameter.
@@ -36,10 +36,9 @@ public static class BindingGenerator
             .Where(cursor => !_options.Ignored.Contains(cursor.Handle.Spelling.CString))
             .ToArray();
 
-        FunctionDecl[] functionDecls = cursors
+        FunctionDecl[] functionDecls = [.. cursors
             .OfType<FunctionDecl>()
-            .OrderBy(x => x.Name)
-            .ToArray();
+            .OrderBy(x => x.Name)];
 
         RecordDecl[] recordDecls = cursors
             .OfType<RecordDecl>()
@@ -48,15 +47,13 @@ public static class BindingGenerator
             .Select(x => x.First())
             .ToArray();
 
-        EnumDecl[] enumDecls = cursors
+        EnumDecl[] enumDecls = [.. cursors
             .OfType<EnumDecl>()
-            .OrderBy(x => x.Name)
-            .ToArray();
+            .OrderBy(x => x.Name)];
 
-        VarDecl[] varDecls = cursors
+        VarDecl[] varDecls = [.. cursors
             .OfType<VarDecl>()
-            .OrderBy(x => x.Name)
-            .ToArray();
+            .OrderBy(x => x.Name)];
 
         VarDecl[] macroVarDecls = varDecls
             .Where(x => x.Name.StartsWith(MacroPrefix, StringComparison.Ordinal))
@@ -70,39 +67,64 @@ public static class BindingGenerator
         StringBuilder nativeOutputBuilder = new();
 
         foreach (FunctionDecl functionDecl in functionDecls)
+        {
             outputBuilder.AppendLine(GenerateFunctionDecl(functionDecl));
+        }
 
         foreach (RecordDecl recordDecl in recordDecls)
+        {
+            if (options.RemappedTypeNames.ContainsKey(recordDecl.Name))
+            {
+                continue;
+            }
+
             outputBuilder.AppendLine(GenerateRecordDecl(recordDecl));
+        }
 
         foreach (EnumDecl enumDecl in enumDecls)
+        {
             outputBuilder.AppendLine(GenerateEnumDecl(enumDecl));
+        }
 
         foreach (EnumDecl enumDecl in enumDecls)
+        {
             outputBuilder.AppendLine(GenerateEnumDeclConstants(enumDecl));
+        }
 
         if (_options.GenerateMacros)
         {
             foreach (VarDecl varDecl in macroVarDecls)
+            {
                 outputBuilder.AppendLine(GenerateMacroVarDecl(varDecl));
+            }
         }
 
         if (_options.GenerateExternVariables)
         {
             foreach (VarDecl varDecl in externVarDecls)
+            {
                 outputBuilder.AppendLine(GenerateExternVarDeclManagedGetter(varDecl));
+            }
 
             foreach (VarDecl varDecl in externVarDecls)
+            {
                 outputBuilder.AppendLine(GenerateExternVarDeclField(varDecl));
+            }
 
             foreach (VarDecl varDecl in externVarDecls)
+            {
                 outputBuilder.AppendLine(GenerateExternVarDeclProperty(varDecl));
+            }
 
             foreach (VarDecl varDecl in externVarDecls)
+            {
                 nativeOutputBuilder.AppendLine(GenerateExternVarDeclNativeVariable(varDecl));
+            }
 
             foreach (VarDecl varDecl in externVarDecls)
+            {
                 nativeOutputBuilder.AppendLine(GenerateExternVarDeclNativeGetter(varDecl));
+            }
         }
 
         string output = CodeFormatter.Format($$"""
@@ -159,29 +181,41 @@ public static class BindingGenerator
             .Select(includeDirectory => "-I" + Path.GetFullPath(includeDirectory))
             .ToList();
 
-        List<CXUnsavedFile> unsavedFiles = new();
+        List<CXUnsavedFile> unsavedFiles = [];
         CXTranslationUnit_Flags flags = default;
 
         if (_options.GenerateMacros)
+        {
+#pragma warning disable S3265 // Non-flags enums should not be used in bitwise operations
             flags |= CXTranslationUnit_Flags.CXTranslationUnit_DetailedPreprocessingRecord;
+#pragma warning restore S3265 // Non-flags enums should not be used in bitwise operations
+        }
 
         if (_options.TreatInputFileAsRawSourceCode)
+        {
             unsavedFiles.Add(CXUnsavedFile.Create(inputFileName, _options.InputFile));
+        }
         else if (!Path.Exists(inputFileName))
-            throw new ArgumentException($"Input file at path \"{inputFileName}\" does not exist.", nameof(_options));
+        {
+            throw new FileNotFoundException($"Input file at path \"{inputFileName}\" does not exist.", inputFileName);
+        }
 
         CXIndex index = CXIndex.Create();
         CXErrorCode errorCode = CXTranslationUnit.TryParse(index, inputFileName, arguments.ToArray(), unsavedFiles.ToArray(), flags, out CXTranslationUnit handle);
 
         foreach (CXUnsavedFile unsavedFile in unsavedFiles)
+        {
             unsavedFile.Dispose();
+        }
 
         ProcessDiagnostics(errorCode, handle);
 
         TranslationUnit translationUnit = TranslationUnit.GetOrCreate(handle);
 
         if (_options.GenerateMacros)
+        {
             translationUnit = ProcessMacros(index, translationUnit, arguments.ToArray(), flags);
+        }
 
         return (translationUnit, index);
     }
@@ -224,17 +258,22 @@ public static class BindingGenerator
             .ToArray();
 
         foreach (MacroDefinitionRecord macroDefinitionRecord in macroDefinitionRecords)
+        {
             newFileBuilder.AppendLine(GenerateMacroDummy(macroDefinitionRecord));
+        }
 
         translationUnit.Dispose();
 
-        List<CXUnsavedFile> unsavedFiles = new();
-        unsavedFiles.Add(CXUnsavedFile.Create(inputFileName, newFileBuilder.ToString()));
+        List<CXUnsavedFile> unsavedFiles = [CXUnsavedFile.Create(inputFileName, newFileBuilder.ToString())];
 
+#pragma warning disable S3265 // Non-flags enums should not be used in bitwise operations
         CXTranslationUnit handle = CXTranslationUnit.Parse(index, inputFileName, arguments.ToArray(), unsavedFiles.ToArray(), flags & ~CXTranslationUnit_Flags.CXTranslationUnit_DetailedPreprocessingRecord);
+#pragma warning restore S3265 // Non-flags enums should not be used in bitwise operations
 
         foreach (CXUnsavedFile unsavedFile in unsavedFiles)
+        {
             unsavedFile.Dispose();
+        }
 
         return TranslationUnit.GetOrCreate(handle);
     }
@@ -245,7 +284,9 @@ public static class BindingGenerator
         sourceRange.End.GetFileLocation(out CXFile endFile, out uint _, out uint _, out uint endOffset);
 
         if (startFile != endFile)
+        {
             return string.Empty;
+        }
 
         ReadOnlySpan<byte> fileContents = translationUnit.GetFileContents(startFile, out UIntPtr _);
         fileContents = fileContents.Slice(unchecked((int)startOffset), unchecked((int)(endOffset - startOffset)));
@@ -277,7 +318,9 @@ public static class BindingGenerator
         while (!recordDecl.IsThisDeclarationADefinition)
         {
             if (recordDecl.Definition == null)
+            {
                 return false;
+            }
 
             recordDecl = recordDecl.Definition;
         }
@@ -290,7 +333,9 @@ public static class BindingGenerator
         while (!recordDecl.IsThisDeclarationADefinition)
         {
             if (recordDecl.Definition == null)
+            {
                 break;
+            }
 
             recordDecl = recordDecl.Definition;
         }
@@ -298,7 +343,7 @@ public static class BindingGenerator
         return recordDecl;
     }
 
-    private static bool IsType<T>(Type type, [MaybeNullWhen(false)] out T value) where T : Type?
+    private static bool IsType<T>(Type type, [NotNullWhen(true)] out T? value) where T : Type
     {
         if (type is T t)
         {
@@ -307,12 +352,17 @@ public static class BindingGenerator
         }
 
         if (type is ElaboratedType elaboratedType)
+        {
             return IsType(elaboratedType.CanonicalType, out value);
+        }
 
         if (type is PointerType pointerType)
+        {
             return IsType(pointerType.PointeeType, out value);
+        }
 
         value = default;
+
         return false;
     }
 
@@ -380,7 +430,9 @@ public static class BindingGenerator
     private static string GenerateRecordDecl(RecordDecl recordDecl)
     {
         if (RecordHasDefinition(recordDecl) && !recordDecl.IsThisDeclarationADefinition)
+        {
             return GenerateRecordDecl(GetRecordDefinition(recordDecl));
+        }
 
         string recordName = GetRemappedCursorName(recordDecl);
 
@@ -407,13 +459,17 @@ public static class BindingGenerator
         foreach (FieldDecl fieldDecl in fieldsDecls)
         {
             if (recordDecl.IsUnion)
+            {
                 fields.AppendLine("[System.Runtime.InteropServices.FieldOffset(0)]");
+            }
 
             string fieldName = GetValidIdentifier(fieldDecl.Name);
             string typeName = GetRemappedTypeName(fieldDecl.Type);
 
             if (fieldDecl.IsAnonymousField)
+            {
                 fieldName = GetRemappedTypeName(fieldDecl.Type) + "_Field";
+            }
 
             if (fieldDecl.Type is ConstantArrayType constantArrayType && IsSupportedFixedSizedBufferType(GetTypeName(constantArrayType.ElementType)))
             {
@@ -423,11 +479,13 @@ public static class BindingGenerator
             }
 
             if (fieldDecl.Type is ConstantArrayType)
+            {
                 typeName = GenerateFixedBufferName(fieldName);
+            }
 
-            bool commentFunctionPointer = IsType<FunctionProtoType>(fieldDecl.Type, out FunctionProtoType? functionProtoType) && !_options.GenerateFunctionPointers;
+            bool commentFunctionPointer = IsType(fieldDecl.Type, out FunctionProtoType? functionProtoType) && !_options.GenerateFunctionPointers;
 
-            fields.AppendLine(CultureInfo.InvariantCulture, $"public {typeName} {fieldName}; {(commentFunctionPointer ? "// " + GetCSharpFunctionPointer(functionProtoType!) : string.Empty)}");
+            fields.AppendLine(CultureInfo.InvariantCulture, $"public {typeName} {ToCamelCase(fieldName)}; {(commentFunctionPointer ? "// " + GetCSharpFunctionPointer(functionProtoType!) : string.Empty)}");
         }
 
         foreach (IndirectFieldDecl indirectFieldDecl in indirectFieldDecls)
@@ -441,7 +499,9 @@ public static class BindingGenerator
                 string fieldName = GetValidIdentifier(indirectFieldDecl.Name);
 
                 if (IsAnonymous(indirectFieldDecl.Type))
+                {
                     typeName = $"{declContextName}.{typeName}";
+                }
 
                 fields.AppendLine(CultureInfo.InvariantCulture,
                     $"public ref {typeName} {fieldName} => ref {declContextName}_Field.{fieldName};");
@@ -459,11 +519,14 @@ public static class BindingGenerator
             StringBuilder fixedBufferFields = new();
 
             for (int i = 0; i < arraySize; i++)
+            {
                 fixedBufferFields.AppendLine(CultureInfo.InvariantCulture, $"public {typeName} Item{i};");
+            }
 
             string indexer;
 
-            if (IsType(constantArrayType.ElementType, out PointerType _))
+            if (IsType(constantArrayType.ElementType, out PointerType? _))
+            {
                 indexer = $$"""
                     public ref {{typeName}} this[int index]
                     {
@@ -478,13 +541,16 @@ public static class BindingGenerator
                         }
                     }
                 """;
+            }
             else
+            {
                 indexer = $$"""
                     public ref {{typeName}} this[int index] => ref AsSpan()[index];
 
                     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
                     public System.Span<{{typeName}}> AsSpan() => System.Runtime.InteropServices.MemoryMarshal.CreateSpan(ref Item0, {{arraySize}});
                 """;
+            }
 
             string fixedBufferSource = $$"""
                 public partial struct {{fieldName}}{{(_options.GenerateStructEqualityFunctions ? $" : System.IEquatable<{fieldName}> " : "")}}
@@ -499,7 +565,9 @@ public static class BindingGenerator
         }
 
         foreach (RecordDecl recordFieldDecl in recordFieldsDecls)
+        {
             fields.AppendLine(GenerateRecordDecl(recordFieldDecl));
+        }
 
         return $@"
             {(recordDecl.IsUnion ? "[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Explicit)]" : "")}
@@ -513,13 +581,15 @@ public static class BindingGenerator
 
     private static string GenerateEnumDecl(EnumDecl enumDecl)
     {
-        List<string> enumMembers = new ();
+        List<string> enumMembers = [];
         bool hasNegatives = false;
 
         foreach (EnumConstantDecl enumConstant in enumDecl.Enumerators)
         {
             if (enumConstant.IsNegative)
+            {
                 hasNegatives = true;
+            }
 
             enumMembers.Add(GenerateEnumConstantDecl(enumConstant));
         }
@@ -558,10 +628,14 @@ public static class BindingGenerator
     private static string GenerateMacroVarDecl(VarDecl varDecl)
     {
         if (!varDecl.Name.StartsWith(MacroPrefix, StringComparison.Ordinal))
+        {
             return string.Empty;
+        }
 
         if (!varDecl.HasInit)
+        {
             return string.Empty;
+        }
 
         Expr init = varDecl.Init;
         CXEvalResult result = varDecl.Handle.Evaluate;
@@ -574,9 +648,9 @@ public static class BindingGenerator
             case CXEvalResultKind.CXEval_Float:
                 expression = init.Type.Kind switch
                 {
-                    CXTypeKind.CXType_Double =>  result.AsDouble.ToString(CultureInfo.InvariantCulture),
-                    CXTypeKind.CXType_Float =>  ((float)result.AsDouble).ToString(CultureInfo.InvariantCulture) + "f",
-                    CXTypeKind.CXType_LongDouble =>  ((decimal)result.AsDouble).ToString(CultureInfo.InvariantCulture),
+                    CXTypeKind.CXType_Double => result.AsDouble.ToString(CultureInfo.InvariantCulture),
+                    CXTypeKind.CXType_Float => ((float)result.AsDouble).ToString(CultureInfo.InvariantCulture) + "f",
+                    CXTypeKind.CXType_LongDouble => ((decimal)result.AsDouble).ToString(CultureInfo.InvariantCulture),
                     _ => $"INVALID_FLOAT_{init.Type.Kind}"
                 };
                 break;
@@ -642,7 +716,9 @@ public static class BindingGenerator
     private static string GenerateExternVarDeclProperty(VarDecl varDecl)
     {
         if (!varDecl.HasExternalStorage)
+        {
             return "";
+        }
 
         string typeName = GetTypeName(varDecl.Type);
         string validName = GetValidIdentifier(varDecl.Name);
@@ -658,7 +734,9 @@ public static class BindingGenerator
     private static string GenerateMacroDummy(MacroDefinitionRecord macro)
     {
         if (macro.IsFunctionLike)
+        {
             return string.Empty;
+        }
 
         CXTranslationUnit translationUnitHandle = macro.TranslationUnit.Handle;
         Span<CXToken> tokens = translationUnitHandle.Tokenize(macro.Extent);
@@ -668,7 +746,9 @@ public static class BindingGenerator
                           tokens.Length == 1;
 
         if (hasNoValue)
+        {
             return string.Empty;
+        }
 
         CXSourceLocation sourceRangeEnd = tokens[^1].GetExtent(translationUnitHandle).End;
         CXSourceLocation sourceRangeStart = tokens[1].GetLocation(translationUnitHandle);
@@ -736,10 +816,14 @@ public static class BindingGenerator
         string? cursorName = null;
 
         if (IsType(type, out RecordType? recordType))
+        {
             cursorName = GetCursorName(recordType!.Decl);
+        }
 
         if (IsType(type, out EnumType? enumType))
+        {
             cursorName = GetCursorName(enumType!.Decl);
+        }
 
         return cursorName?.StartsWith(AnonymousPrefix, StringComparison.InvariantCulture) ?? false;
     }
@@ -814,7 +898,9 @@ public static class BindingGenerator
                 .FirstOrDefault(fieldDecl => fieldDecl.Type.CanonicalType == recordDecl.TypeForDecl.CanonicalType);
 
             if (matchingField is not null && !string.IsNullOrEmpty(matchingField.Name))
+            {
                 return $"{GetValidIdentifier(matchingField.Name)}_AnonymousRecord";
+            }
         }
 
         return name;
@@ -824,7 +910,7 @@ public static class BindingGenerator
     {
         string name = GetTypeName(type);
 
-        if (IsType<RecordType>(type, out RecordType? recordType) && name.StartsWith(AnonymousPrefix, StringComparison.Ordinal) && recordType.Decl.Parent is RecordDecl parentRecordDecl)
+        if (IsType(type, out RecordType? recordType) && name.StartsWith(AnonymousPrefix, StringComparison.Ordinal) && recordType.Decl.Parent is RecordDecl parentRecordDecl)
         {
             RecordDecl recordDecl = recordType.Decl;
 
@@ -832,7 +918,9 @@ public static class BindingGenerator
                 .FirstOrDefault(fieldDecl => fieldDecl.Type.CanonicalType == recordDecl.TypeForDecl.CanonicalType);
 
             if (matchingField is not null && !string.IsNullOrEmpty(matchingField.Name))
+            {
                 return $"{GetValidIdentifier(matchingField.Name)}_AnonymousRecord";
+            }
         }
 
         return name;
@@ -840,186 +928,90 @@ public static class BindingGenerator
 
     private static string GetTypeName(Type type)
     {
-        if (type is AutoType autoType)
-            return GetTypeName(autoType.GetDeducedType);
-
-        if (type is BuiltinType builtinType)
+        string GetTypeNameInner()
         {
-            switch (builtinType.Kind)
+            if (type is AutoType autoType)
             {
-                case CXTypeKind.CXType_Bool:
-                    return "byte";
-                case CXTypeKind.CXType_Float:
-                    return "float";
-                case CXTypeKind.CXType_Double:
-                    return "double";
-                case CXTypeKind.CXType_LongDouble:
-                    return "decimal";
-                case CXTypeKind.CXType_Void:
-                    return "void";
-                case CXTypeKind.CXType_Char16:
-                case CXTypeKind.CXType_Char32:
-                case CXTypeKind.CXType_Char_S:
-                case CXTypeKind.CXType_Char_U:
-                case CXTypeKind.CXType_SChar:
-                case CXTypeKind.CXType_UChar:
-                case CXTypeKind.CXType_WChar:
-                    return GetIntegerName(
-                        builtinType.Handle.SizeOf,
-                        builtinType.Handle.IsSigned,
-                        $"INVALID_CHAR_{builtinType.Kind}");
-                case CXTypeKind.CXType_Short:
-                case CXTypeKind.CXType_Int:
-                case CXTypeKind.CXType_Long:
-                case CXTypeKind.CXType_LongLong:
-                    return GetSignedIntegerName(builtinType.Handle.SizeOf, $"INVALID_SIGNED_INTEGER_{builtinType.Kind}_SIZEOF_{builtinType.Handle.SizeOf}");
-                case CXTypeKind.CXType_UShort:
-                case CXTypeKind.CXType_UInt:
-                case CXTypeKind.CXType_ULong:
-                case CXTypeKind.CXType_ULongLong:
-                    return GetUnsignedIntegerName(builtinType.Handle.SizeOf, $"INVALID_UNSIGNED_INTEGER_{builtinType.Kind}_SIZEOF_{builtinType.Handle.SizeOf}");
-                case CXTypeKind.CXType_Invalid:
-                case CXTypeKind.CXType_Unexposed:
-                case CXTypeKind.CXType_UInt128:
-                case CXTypeKind.CXType_Int128:
-                case CXTypeKind.CXType_NullPtr:
-                case CXTypeKind.CXType_Overload:
-                case CXTypeKind.CXType_Dependent:
-                case CXTypeKind.CXType_ObjCId:
-                case CXTypeKind.CXType_ObjCClass:
-                case CXTypeKind.CXType_ObjCSel:
-                case CXTypeKind.CXType_Float128:
-                case CXTypeKind.CXType_Half:
-                case CXTypeKind.CXType_Float16:
-                case CXTypeKind.CXType_ShortAccum:
-                case CXTypeKind.CXType_Accum:
-                case CXTypeKind.CXType_LongAccum:
-                case CXTypeKind.CXType_UShortAccum:
-                case CXTypeKind.CXType_UAccum:
-                case CXTypeKind.CXType_ULongAccum:
-                case CXTypeKind.CXType_BFloat16:
-                case CXTypeKind.CXType_Ibm128:
-                case CXTypeKind.CXType_Complex:
-                case CXTypeKind.CXType_Pointer:
-                case CXTypeKind.CXType_BlockPointer:
-                case CXTypeKind.CXType_LValueReference:
-                case CXTypeKind.CXType_RValueReference:
-                case CXTypeKind.CXType_Record:
-                case CXTypeKind.CXType_Enum:
-                case CXTypeKind.CXType_Typedef:
-                case CXTypeKind.CXType_ObjCInterface:
-                case CXTypeKind.CXType_ObjCObjectPointer:
-                case CXTypeKind.CXType_FunctionNoProto:
-                case CXTypeKind.CXType_FunctionProto:
-                case CXTypeKind.CXType_ConstantArray:
-                case CXTypeKind.CXType_Vector:
-                case CXTypeKind.CXType_IncompleteArray:
-                case CXTypeKind.CXType_VariableArray:
-                case CXTypeKind.CXType_DependentSizedArray:
-                case CXTypeKind.CXType_MemberPointer:
-                case CXTypeKind.CXType_Auto:
-                case CXTypeKind.CXType_Elaborated:
-                case CXTypeKind.CXType_Pipe:
-                case CXTypeKind.CXType_OCLImage1dRO:
-                case CXTypeKind.CXType_OCLImage1dArrayRO:
-                case CXTypeKind.CXType_OCLImage1dBufferRO:
-                case CXTypeKind.CXType_OCLImage2dRO:
-                case CXTypeKind.CXType_OCLImage2dArrayRO:
-                case CXTypeKind.CXType_OCLImage2dDepthRO:
-                case CXTypeKind.CXType_OCLImage2dArrayDepthRO:
-                case CXTypeKind.CXType_OCLImage2dMSAARO:
-                case CXTypeKind.CXType_OCLImage2dArrayMSAARO:
-                case CXTypeKind.CXType_OCLImage2dMSAADepthRO:
-                case CXTypeKind.CXType_OCLImage2dArrayMSAADepthRO:
-                case CXTypeKind.CXType_OCLImage3dRO:
-                case CXTypeKind.CXType_OCLImage1dWO:
-                case CXTypeKind.CXType_OCLImage1dArrayWO:
-                case CXTypeKind.CXType_OCLImage1dBufferWO:
-                case CXTypeKind.CXType_OCLImage2dWO:
-                case CXTypeKind.CXType_OCLImage2dArrayWO:
-                case CXTypeKind.CXType_OCLImage2dDepthWO:
-                case CXTypeKind.CXType_OCLImage2dArrayDepthWO:
-                case CXTypeKind.CXType_OCLImage2dMSAAWO:
-                case CXTypeKind.CXType_OCLImage2dArrayMSAAWO:
-                case CXTypeKind.CXType_OCLImage2dMSAADepthWO:
-                case CXTypeKind.CXType_OCLImage2dArrayMSAADepthWO:
-                case CXTypeKind.CXType_OCLImage3dWO:
-                case CXTypeKind.CXType_OCLImage1dRW:
-                case CXTypeKind.CXType_OCLImage1dArrayRW:
-                case CXTypeKind.CXType_OCLImage1dBufferRW:
-                case CXTypeKind.CXType_OCLImage2dRW:
-                case CXTypeKind.CXType_OCLImage2dArrayRW:
-                case CXTypeKind.CXType_OCLImage2dDepthRW:
-                case CXTypeKind.CXType_OCLImage2dArrayDepthRW:
-                case CXTypeKind.CXType_OCLImage2dMSAARW:
-                case CXTypeKind.CXType_OCLImage2dArrayMSAARW:
-                case CXTypeKind.CXType_OCLImage2dMSAADepthRW:
-                case CXTypeKind.CXType_OCLImage2dArrayMSAADepthRW:
-                case CXTypeKind.CXType_OCLImage3dRW:
-                case CXTypeKind.CXType_OCLSampler:
-                case CXTypeKind.CXType_OCLEvent:
-                case CXTypeKind.CXType_OCLQueue:
-                case CXTypeKind.CXType_OCLReserveID:
-                case CXTypeKind.CXType_ObjCObject:
-                case CXTypeKind.CXType_ObjCTypeParam:
-                case CXTypeKind.CXType_Attributed:
-                case CXTypeKind.CXType_OCLIntelSubgroupAVCMcePayload:
-                case CXTypeKind.CXType_OCLIntelSubgroupAVCImePayload:
-                case CXTypeKind.CXType_OCLIntelSubgroupAVCRefPayload:
-                case CXTypeKind.CXType_OCLIntelSubgroupAVCSicPayload:
-                case CXTypeKind.CXType_OCLIntelSubgroupAVCMceResult:
-                case CXTypeKind.CXType_OCLIntelSubgroupAVCImeResult:
-                case CXTypeKind.CXType_OCLIntelSubgroupAVCRefResult:
-                case CXTypeKind.CXType_OCLIntelSubgroupAVCSicResult:
-                case CXTypeKind.CXType_OCLIntelSubgroupAVCImeResultSingleRefStreamout:
-                case CXTypeKind.CXType_OCLIntelSubgroupAVCImeResultDualRefStreamout:
-                case CXTypeKind.CXType_OCLIntelSubgroupAVCImeSingleRefStreamin:
-                case CXTypeKind.CXType_OCLIntelSubgroupAVCImeDualRefStreamin:
-                case CXTypeKind.CXType_ExtVector:
-                case CXTypeKind.CXType_Atomic:
-                case CXTypeKind.CXType_BTFTagAttributed:
-                default:
-                    return $"INVALID_BUILTIN_{builtinType.Kind}";
+                return GetTypeName(autoType.GetDeducedType);
             }
-        }
 
-        if (type is ConstantArrayType constantArrayType)
-            return GetTypeName(constantArrayType.ElementType);
-
-        if (type is ElaboratedType elaboratedType)
-        {
-            return elaboratedType.AsString switch
+            if (type is BuiltinType builtinType)
             {
-                "size_t" => "System.IntPtr",
-                "va_list" => "void*",
-                _ => GetTypeName(elaboratedType.CanonicalType)
-            };
+                return builtinType.Kind switch
+                {
+                    CXTypeKind.CXType_Bool => "byte",
+                    CXTypeKind.CXType_Float => "float",
+                    CXTypeKind.CXType_Double => "double",
+                    CXTypeKind.CXType_LongDouble => "decimal",
+                    CXTypeKind.CXType_Void => "void",
+                    CXTypeKind.CXType_Char16 or CXTypeKind.CXType_Char32 or CXTypeKind.CXType_Char_S or CXTypeKind.CXType_Char_U or CXTypeKind.CXType_SChar or CXTypeKind.CXType_UChar or CXTypeKind.CXType_WChar => GetIntegerName(
+                                            builtinType.Handle.SizeOf,
+                                            builtinType.Handle.IsSigned,
+                                            $"INVALID_CHAR_{builtinType.Kind}"),
+                    CXTypeKind.CXType_Short or CXTypeKind.CXType_Int or CXTypeKind.CXType_Long or CXTypeKind.CXType_LongLong => GetSignedIntegerName(builtinType.Handle.SizeOf, $"INVALID_SIGNED_INTEGER_{builtinType.Kind}_SIZEOF_{builtinType.Handle.SizeOf}"),
+                    CXTypeKind.CXType_UShort or CXTypeKind.CXType_UInt or CXTypeKind.CXType_ULong or CXTypeKind.CXType_ULongLong => GetUnsignedIntegerName(builtinType.Handle.SizeOf, $"INVALID_UNSIGNED_INTEGER_{builtinType.Kind}_SIZEOF_{builtinType.Handle.SizeOf}"),
+                    _ => $"INVALID_BUILTIN_{builtinType.Kind}",
+                };
+            }
+
+            if (type is ConstantArrayType constantArrayType)
+            {
+                return GetTypeName(constantArrayType.ElementType);
+            }
+
+            if (type is ElaboratedType elaboratedType)
+            {
+                return elaboratedType.AsString switch
+                {
+                    "size_t" => "System.IntPtr",
+                    "va_list" => "void*",
+                    _ => GetTypeName(elaboratedType.CanonicalType)
+                };
+            }
+
+            if (type is EnumType enumType)
+            {
+                return GetCursorName(enumType.Decl);
+            }
+
+            if (type is FunctionProtoType functionProtoType)
+            {
+                return !_options.GenerateFunctionPointers ? "System.IntPtr" : GetCSharpFunctionPointer(functionProtoType);
+            }
+
+            if (type is IncompleteArrayType incompleteArrayType)
+            {
+                return GetTypeName(incompleteArrayType.ElementType) + "*";
+            }
+
+            if (type is PointerType pointerType)
+            {
+                if (pointerType.CanonicalType.PointeeType is FunctionProtoType)
+                {
+                    return GetTypeName(pointerType.PointeeType);
+                }
+
+                if (pointerType.PointeeType.AsString == "FILE")
+                {
+                    return "void*";
+                }
+
+                return GetTypeName(pointerType.CanonicalType.PointeeType) + "*";
+            }
+
+            if (type is RecordType recordType)
+            {
+                return GetCursorName(recordType.Decl);
+            }
+
+            return "UNHANDLED_TYPE";
         }
 
-        if (type is EnumType enumType)
-            return GetCursorName(enumType.Decl);
+        string typeName = GetTypeNameInner();
 
-        if (type is FunctionProtoType functionProtoType)
-            return !_options.GenerateFunctionPointers ? "System.IntPtr" : GetCSharpFunctionPointer(functionProtoType);
-
-        if (type is IncompleteArrayType incompleteArrayType)
-            return GetTypeName(incompleteArrayType.ElementType) + "*";
-
-        if (type is PointerType pointerType)
-        {
-            if (pointerType.CanonicalType.PointeeType is FunctionProtoType)
-                return GetTypeName(pointerType.PointeeType);
-
-            if (pointerType.PointeeType.AsString == "FILE")
-                return "void*";
-
-            return GetTypeName(pointerType.CanonicalType.PointeeType) + "*";
-        }
-
-        if (type is RecordType recordType)
-            return GetCursorName(recordType.Decl);
-
-        return "UNHANDLED_TYPE";
+        return _options.RemappedTypeNames.TryGetValue(typeName, out string? remappedTypeName)
+            ? remappedTypeName
+            : typeName;
     }
 
     private static string GetValidIdentifier(string identifier, bool remap = true)
@@ -1029,95 +1021,65 @@ public static class BindingGenerator
             foreach ((string prefix, string replacement) in _options.RemappedPrefixes)
             {
                 if (!identifier.StartsWith(prefix, StringComparison.InvariantCulture))
+                {
                     continue;
+                }
 
                 identifier = replacement + identifier[prefix.Length..];
                 break;
             }
         }
 
-        switch (identifier)
+        return identifier switch
         {
-            case "abstract":
-            case "as":
-            case "base":
-            case "bool":
-            case "break":
-            case "byte":
-            case "case":
-            case "catch":
-            case "char":
-            case "checked":
-            case "class":
-            case "const":
-            case "continue":
-            case "decimal":
-            case "default":
-            case "delegate":
-            case "do":
-            case "double":
-            case "else":
-            case "enum":
-            case "event":
-            case "explicit":
-            case "extern":
-            case "false":
-            case "finally":
-            case "fixed":
-            case "float":
-            case "for":
-            case "foreach":
-            case "goto":
-            case "if":
-            case "implicit":
-            case "in":
-            case "int":
-            case "interface":
-            case "internal":
-            case "is":
-            case "lock":
-            case "long":
-            case "namespace":
-            case "new":
-            case "null":
-            case "object":
-            case "operator":
-            case "out":
-            case "override":
-            case "params":
-            case "private":
-            case "protected":
-            case "public":
-            case "readonly":
-            case "ref":
-            case "return":
-            case "sbyte":
-            case "sealed":
-            case "short":
-            case "sizeof":
-            case "stackalloc":
-            case "static":
-            case "string":
-            case "struct":
-            case "switch":
-            case "this":
-            case "throw":
-            case "true":
-            case "try":
-            case "typeof":
-            case "uint":
-            case "ulong":
-            case "unchecked":
-            case "unsafe":
-            case "ushort":
-            case "using":
-            case "virtual":
-            case "void":
-            case "volatile":
-            case "while":
-                return "@" + identifier;
-            default:
-                return identifier;
+            "abstract" or "as" or "base" or "bool" or "break" or "byte" or "case" or "catch" or "char" or "checked" or "class" or "const" or "continue" or "decimal" or "default" or "delegate" or "do" or "double" or "else" or "enum" or "event" or "explicit" or "extern" or "false" or "finally" or "fixed" or "float" or "for" or "foreach" or "goto" or "if" or "implicit" or "in" or "int" or "interface" or "internal" or "is" or "lock" or "long" or "namespace" or "new" or "null" or "object" or "operator" or "out" or "override" or "params" or "private" or "protected" or "public" or "readonly" or "ref" or "return" or "sbyte" or "sealed" or "short" or "sizeof" or "stackalloc" or "static" or "string" or "struct" or "switch" or "this" or "throw" or "true" or "try" or "typeof" or "uint" or "ulong" or "unchecked" or "unsafe" or "ushort" or "using" or "virtual" or "void" or "volatile" or "while" => "@" + identifier,
+            _ => identifier,
+        };
+    }
+
+    private static string ToCamelCase(string s)
+    {
+        if (string.IsNullOrEmpty(s))
+        {
+            return s;
         }
+
+        char[] chars = s.ToCharArray();
+
+        for (int i = 0; i < chars.Length; i++)
+        {
+            if (i == 1 && !char.IsUpper(chars[i]))
+            {
+                break;
+            }
+
+            bool hasNext = (i + 1 < chars.Length);
+            if (i > 0 && hasNext && !char.IsUpper(chars[i + 1]))
+            {
+                // if the next character is a space, which is not considered uppercase 
+                // (otherwise we wouldn't be here...)
+                // we want to ensure that the following:
+                // 'FOO bar' is rewritten as 'foo bar', and not as 'foO bar'
+                // The code was written in such a way that the first word in uppercase
+                // ends when if finds an uppercase letter followed by a lowercase letter.
+                // now a ' ' (space, (char)32) is considered not upper
+                // but in that case we still want our current character to become lowercase
+                if (char.IsSeparator(chars[i + 1]))
+                {
+                    chars[i] = char.ToLower(chars[i], CultureInfo.InvariantCulture);
+                }
+
+                break;
+            }
+
+            chars[i] = char.ToLower(chars[i], CultureInfo.InvariantCulture);
+        }
+
+        if (char.IsLower(chars[0]))
+        {
+            chars[0] = char.ToUpper(chars[0], CultureInfo.InvariantCulture);
+        }
+
+        return new string(chars);
     }
 }

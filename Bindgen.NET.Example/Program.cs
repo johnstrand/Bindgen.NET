@@ -1,33 +1,7 @@
-﻿using System.IO;
-using Bindgen.NET;
+﻿using Bindgen.NET;
+using System.IO;
 
-const string exampleSource = """
-// Bindgen.NET has clang headers built-in
-#include <stdint.h>
-#include <stdbool.h>
-
-// Structs
-typedef struct {
-    uint32_t integer;
-    uint32_t array[4];
-} example_struct_t;
-
-// Enums
-typedef enum {
-    red,
-    green,
-    blue
-} example_enum_t;
-
-// Functions
-bool example_function(example_struct_t example_parameter);
-
-// Value-like macros
-#define five (5)
-#define ten (5 + five)
-#define world "World"
-#define hello_world "Hello " world
-""";
+var exampleSource = await File.ReadAllTextAsync("Raylib.h");
 
 BindingOptions exampleConfig = new()
 {
@@ -45,10 +19,14 @@ BindingOptions exampleConfig = new()
     SuppressedWarnings = { "CA1069" },
 
     GenerateFunctionPointers = true,
-    GenerateMacros = true
+    GenerateMacros = true,
+    RemappedTypeNames = new()
+    {
+        ["Vector2"] = "System.Numerics.Vector2"
+    }
 };
 
-string generatedSource = BindingGenerator.Generate(exampleConfig);
+var generatedSource = BindingGenerator.Generate(exampleConfig);
 
 System.Console.WriteLine(generatedSource);
 

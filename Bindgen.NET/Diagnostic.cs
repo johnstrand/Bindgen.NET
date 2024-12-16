@@ -6,8 +6,10 @@ internal static class Diagnostic
 
     public static void Log(DiagnosticLevel diagnosticLevel, string message)
     {
-        if (!(diagnosticLevel <= CurrentDiagnosticLevel))
+        if (diagnosticLevel > CurrentDiagnosticLevel)
+        {
             return;
+        }
 
         Console.WriteLine($"{diagnosticLevel}: {message}");
     }

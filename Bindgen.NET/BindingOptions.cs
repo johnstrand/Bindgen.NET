@@ -24,22 +24,32 @@ public class BindingOptions
     /// <summary>
     /// A list of items to skip generating bindings for. This can be used to skip generation for structs, functions, macros, etc.
     /// </summary>
-    public List<string> Ignored { get; set; } = new();
+    public List<string> Ignored { get; set; } = [];
 
     /// <summary>
     /// Include directories for user headers. Declarations found in these headers will have bindings generated for them.
     /// </summary>
-    public List<string> IncludeDirectories { get; set; } = new();
+    public List<string> IncludeDirectories { get; set; } = [];
 
     /// <summary>
     /// Include directories for system/standard headers. Declarations found in these headers are ignored by the binding generator.
     /// </summary>
-    public List<string> SystemIncludeDirectories { get; set; } = new();
+    public List<string> SystemIncludeDirectories { get; set; } = [];
 
     /// <summary>
     /// Prefixes and their replacement string. An empty replacement string can be used to strip prefixes.
     /// </summary>
-    public List<(string prefix, string replacement)> RemappedPrefixes { get; set; } = new();
+    public List<(string prefix, string replacement)> RemappedPrefixes { get; set; } = [];
+
+    /// <summary>
+    /// A list of names to remap. This can be used to rename functions, structs, enums, etc.
+    /// </summary>
+    public Dictionary<string, string> RemappedNames { get; set; } = [];
+
+    /// <summary>
+    /// Remap types to native C# types. This can be used to remap types like size_t to ulong. This will suppress the generation of a struct for the type.
+    /// </summary>
+    public Dictionary<string, string> RemappedTypeNames { get; set; } = [];
 
     /// <summary>
     /// The root namespace of the generated bindings. This defaults to "Bindings"
@@ -59,7 +69,7 @@ public class BindingOptions
     /// <summary>
     /// List of C# warnings to suppress with #pragma. <code>Example: { "CA1069", "CA1401" }</code>
     /// </summary>
-    public List<string> SuppressedWarnings { get; set; } = new();
+    public List<string> SuppressedWarnings { get; set; } = [];
 
     /// <summary>
     /// Source file name to use for diagnostics when <see cref="TreatInputFileAsRawSourceCode"/> is set to <c>true</c>. This name can be anything and has no effect on generated code. This defaults to "BindgenInputFile.h". <code>Example: "libheader.h"</code>
